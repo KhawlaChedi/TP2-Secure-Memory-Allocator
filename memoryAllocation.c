@@ -15,17 +15,72 @@ typedef struct HEADER_TAG {
 
 HEADER *free_list = NULL;  
 
+void sort_free_list_by_size() {
+    if (!free_list || !free_list->ptr_next) return;
+    
+    HEADER *sorted = NULL;
+
+    while (free_list) {
+        HEADER *current = free_list;
+        free_list = free_list->ptr_next;
+        
+        if (!sorted || current->block_size < sorted->block_size) {
+            current->ptr_next = sorted;
+            sorted = current;
+        } else {
+            HEADER *temp = sorted;
+            while (temp->ptr_next && temp->ptr_next->block_size < current->block_size) {
+                temp = temp->ptr_next;
+            }
+            current->ptr_next = temp->ptr_next;
+            temp->ptr_next = current;
+        }
+    }
+    free_list = sorted;
+}
+
+
+HEADER *find_compatible_block(size_t size) {
+    sort_free_list_by_size();  
+
+    HEADER *prev = NULL;
+    HEADER *current = free_list;
+
+    while (current) {
+        if (current->block_size >= size) {
+            if (prev) {
+                prev->ptr_next = current->ptr_next;
+            } else {
+                free_list = current->ptr_next;
+            }
+            return current;
+        }
+        prev = current;
+        current = current->ptr_next;
+    }
+    
+    return NULL;
+}
+
 void *malloc_3is(size_t size) {
     size_t total_size = HEADER_SIZE + size + MAGIC_NUMBER_SIZE;
+
     
-    void *memory_block = sbrk(total_size);
-    
-    HEADER *header = (HEADER*) memory_block;
-    header->block_size = size;
-    header->magic_number = MAGIC_NUMBER;
-    header->ptr_next = NULL;  
+    HEADER *header = find_compatible_block(size);
+
+    if (!header) {
         
+        void *memory_block = sbrk(total_size);
+        
+
+        header = (HEADER*) memory_block;
+        header->block_size = size;
+        header->magic_number = MAGIC_NUMBER;
+        header->ptr_next = NULL;  
+    }
+    
     void *user_memory = (void*)(header + 1);  
+    
     long *footer_magic = (long*)((char*)user_memory + size);  
     *footer_magic = MAGIC_NUMBER;
     
@@ -33,25 +88,28 @@ void *malloc_3is(size_t size) {
 }
 
 int check_memory_overflow(void *base_ptr, void *element_ptr) {
-
-    HEADER *header = (HEADER*)((char*)base_ptr - HEADER_SIZE);   
+    HEADER *header = (HEADER*)((char*)base_ptr - HEADER_SIZE);
+    
+    
     if (header->magic_number != MAGIC_NUMBER) {
-        printf("Error: magic number modified before the bloc!\n");
+        printf("Erreur : modification du magic number avant l'en-tête !\n");
         return -1;
     }
 
-   
+    
     long *footer_magic = (long*)((char*)base_ptr + header->block_size);
     if (*footer_magic != MAGIC_NUMBER) {
-        printf("Error: magic number modified after the block!\n");
+        printf("Erreur : modification du magic number après le bloc !\n");
         return -1;
     }
 
     
     char *start_address = (char *)header + HEADER_SIZE; 
     char *end_address = start_address + header->block_size; 
+
+    
     if (element_ptr < (void *)start_address || element_ptr >= (void *)end_address) {
-        printf("Error: out-of-bounds access at address %p\n", element_ptr);
+        printf("Erreur : accès hors limites à l'adresse %p\n", element_ptr);
         return -1;
     }
 
@@ -89,7 +147,7 @@ int main() {
     printf("Element 0: %d\n", tab[0]);
     printf("Element 1: %d\n", tab[1]);
     
-    //change magic number test
+/*    //change magic number test
     tab[2] = 30; 
     if (check_memory_overflow(tab, &tab[2]) == -1) exit(EXIT_FAILURE); 
      tab[-2] = 30; 
@@ -99,7 +157,7 @@ int main() {
     for (int i = 1; i >= -1; i--) {
         printf("Element %d: %d\n", i, tab[i]);
         if (check_memory_overflow(tab, &tab[i]) == -1) exit(EXIT_FAILURE);
-    }
+    } */
 
     printf("Size of free_list before freeing: %d\n", get_free_list_size());
 
@@ -108,6 +166,22 @@ int main() {
 
     printf("Size of free_list after freeing: %d\n", get_free_list_size());
     
+    int *new_tab = (int *)malloc_3is(2 * sizeof(int));  
+    new_tab[0] = 30;
+    new_tab[1] = 40;
+    
+
+    printf("New array values after reusing freed block:\n");
+    printf("Element 0: %d\n", new_tab[0]);
+    printf("Element 1: %d\n", new_tab[1]);
+    
+    printf("Size of free_list before freeing: %d\n", get_free_list_size());
+    
+    free_3is(new_tab);
+    printf("Memory freed.\n");
+
+    printf("Size of free_list after freeing: %d\n", get_free_list_size());
+
     return 0;
 }
 
