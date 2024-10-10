@@ -13,9 +13,10 @@ typedef struct HEADER_TAG {
 #define HEADER_SIZE sizeof(HEADER)
 #define MAGIC_NUMBER_SIZE sizeof(long)
 #define MINIMUM_BLOCK_SIZE (HEADER_SIZE + 1 + MAGIC_NUMBER_SIZE)
+#define PREALLOCATED_MEMORY_SIZE 1024 * 1024  // 1 Mo 
 
 HEADER *free_list = NULL;
-
+int memory_preallocated = 0;  
 
 void sort_free_list_by_address() {
     if (!free_list || !free_list->ptr_next) return;
@@ -24,7 +25,7 @@ void sort_free_list_by_address() {
 
     while (free_list) {
         HEADER *current = free_list;
-        free_list = free_list->ptr_next;
+        free_list = current->ptr_next;
 
         if (!sorted || current < sorted) {
             current->ptr_next = sorted;
@@ -41,6 +42,7 @@ void sort_free_list_by_address() {
     free_list = sorted;
 }
 
+
 void merge_adjacent_blocks() {
     if (!free_list) return;
 
@@ -50,7 +52,7 @@ void merge_adjacent_blocks() {
         HEADER *next_block = current->ptr_next;
 
         if ((char*)current + HEADER_SIZE + current->block_size + MAGIC_NUMBER_SIZE == (char*)next_block) {
-            current->block_size +=next_block->block_size;
+            current->block_size += next_block->block_size + HEADER_SIZE + MAGIC_NUMBER_SIZE;
             current->ptr_next = next_block->ptr_next;
         } else {
             current = current->ptr_next;
@@ -58,9 +60,29 @@ void merge_adjacent_blocks() {
     }
 }
 
+
+void preallocate_memory() {
+    if (memory_preallocated) return;
+
+    void *memory_block = sbrk(PREALLOCATED_MEMORY_SIZE);
+    if (memory_block == (void *)-1) {
+        perror("sbrk failed");
+        exit(1);
+    }
+
+    HEADER *header = (HEADER *)memory_block;
+    header->block_size = PREALLOCATED_MEMORY_SIZE - HEADER_SIZE - MAGIC_NUMBER_SIZE;
+    header->magic_number = MAGIC_NUMBER;
+    header->ptr_next = NULL;
+
+    free_list = header;
+    memory_preallocated = 1;
+}
+
+
 HEADER *find_compatible_block(size_t size) {
     sort_free_list_by_address();  
-    merge_adjacent_blocks();      
+    merge_adjacent_blocks();  
 
     HEADER *prev = NULL;
     HEADER *current = free_list;
@@ -103,26 +125,28 @@ HEADER *find_compatible_block(size_t size) {
     return NULL;
 }
 
+
 void *malloc_3is(size_t size) {
+    if (!memory_preallocated) {
+        preallocate_memory();  
+    }
+
     size_t total_size = HEADER_SIZE + size + MAGIC_NUMBER_SIZE;
 
     HEADER *header = find_compatible_block(size);
 
     if (!header) {
-        void *memory_block = sbrk(total_size);
-
-        header = (HEADER*)memory_block;
-        header->block_size = size;
-        header->magic_number = MAGIC_NUMBER;
-        header->ptr_next = NULL;
+        printf("Erreur : pas assez de mémoire préallouée pour la demande de %zu octets.\n", size);
+        return NULL;
     }
 
-    void *user_memory = (void*)(header + 1);
-    long *footer_magic = (long*)((char*)user_memory + size);
+    void *user_memory = (void *)(header + 1);
+    long *footer_magic = (long *)((char *)user_memory + size);
     *footer_magic = MAGIC_NUMBER;
 
     return user_memory;
 }
+
 
 int check_memory_overflow(void *base_ptr, void *element_ptr) {
     HEADER *header = (HEADER*)((char*)base_ptr - HEADER_SIZE);
@@ -149,12 +173,17 @@ int check_memory_overflow(void *base_ptr, void *element_ptr) {
     return 0;
 }
 
+
 void free_3is(void *ptr) {
-    if (!ptr) return;
+    if (!ptr || !memory_preallocated) return;
+
     HEADER *header = (HEADER*)((char*)ptr - HEADER_SIZE);
 
     header->ptr_next = free_list;
     free_list = header;
+
+    sort_free_list_by_address();
+    merge_adjacent_blocks();
 }
 
 int get_free_list_size() {
@@ -168,9 +197,10 @@ int get_free_list_size() {
     return count;
 }
 
+
 int main() {
     int *tab = (int *)malloc_3is(4 * sizeof(int));
-
+   
     tab[0] = 10;
     tab[1] = 20;
     tab[2] = 30;
@@ -181,16 +211,17 @@ int main() {
     printf("Element 1: %d\n", tab[1]);
     printf("Element 2: %d\n", tab[2]);
     printf("Element 3: %d\n", tab[3]);
+   
 
     int *new_tab = (int *)malloc_3is(6 * sizeof(int));
+    
     new_tab[0] = 50;
     new_tab[1] = 60;
 
     printf("Values of the second array:\n");
     printf("Element 0: %d\n", new_tab[0]);
     printf("Element 1: %d\n", new_tab[1]);
-    
-    printf("\nAdresses : %p , %p\n", (void*)tab, (void*)new_tab);
+
 
     printf("Size of free_list before freeing: %d\n", get_free_list_size());
     free_3is(tab);
