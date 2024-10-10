@@ -2,6 +2,7 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>  
 
 typedef struct HEADER_TAG {
     struct HEADER_TAG *ptr_next;
@@ -9,14 +10,18 @@ typedef struct HEADER_TAG {
     long magic_number;
 } HEADER;
 
-#define MAGIC_NUMBER 0x0123456789ABCDEFL
 #define HEADER_SIZE sizeof(HEADER)
 #define MAGIC_NUMBER_SIZE sizeof(long)
 #define MINIMUM_BLOCK_SIZE (HEADER_SIZE + 1 + MAGIC_NUMBER_SIZE)
 #define PREALLOCATED_MEMORY_SIZE 1024 * 1024  // 1 Mo 
 
 HEADER *free_list = NULL;
-int memory_preallocated = 0;  
+int memory_preallocated = 0; 
+long MAGIC_NUMBER ;
+
+long generate_random_magic_number() {
+    return rand(); 
+}
 
 void sort_free_list_by_address() {
     if (!free_list || !free_list->ptr_next) return;
@@ -42,7 +47,6 @@ void sort_free_list_by_address() {
     free_list = sorted;
 }
 
-
 void merge_adjacent_blocks() {
     if (!free_list) return;
 
@@ -60,9 +64,11 @@ void merge_adjacent_blocks() {
     }
 }
 
-
 void preallocate_memory() {
     if (memory_preallocated) return;
+
+    
+    srand(time(NULL)); 
 
     void *memory_block = sbrk(PREALLOCATED_MEMORY_SIZE);
     if (memory_block == (void *)-1) {
@@ -72,13 +78,13 @@ void preallocate_memory() {
 
     HEADER *header = (HEADER *)memory_block;
     header->block_size = PREALLOCATED_MEMORY_SIZE - HEADER_SIZE - MAGIC_NUMBER_SIZE;
-    header->magic_number = MAGIC_NUMBER;
+    header->magic_number = generate_random_magic_number(); 
+    MAGIC_NUMBER=header->magic_number;
     header->ptr_next = NULL;
 
     free_list = header;
     memory_preallocated = 1;
 }
-
 
 HEADER *find_compatible_block(size_t size) {
     sort_free_list_by_address();  
@@ -103,7 +109,7 @@ HEADER *find_compatible_block(size_t size) {
             if (remaining_size >= MINIMUM_BLOCK_SIZE) {
                 HEADER *new_block = (HEADER*)((char*)current + HEADER_SIZE + size + MAGIC_NUMBER_SIZE);
                 new_block->block_size = remaining_size;
-                new_block->magic_number = MAGIC_NUMBER;
+                new_block->magic_number = generate_random_magic_number(); 
 
                 new_block->ptr_next = current->ptr_next;
                 current->block_size = size;
@@ -125,7 +131,6 @@ HEADER *find_compatible_block(size_t size) {
     return NULL;
 }
 
-
 void *malloc_3is(size_t size) {
     if (!memory_preallocated) {
         preallocate_memory();  
@@ -136,29 +141,28 @@ void *malloc_3is(size_t size) {
     HEADER *header = find_compatible_block(size);
 
     if (!header) {
-        printf("Erreur : pas assez de mémoire préallouée pour la demande de %zu octets.\n", size);
+        printf("Error: not enough preallocated memory for the request of %zu bytes.\n", size);
         return NULL;
     }
 
     void *user_memory = (void *)(header + 1);
     long *footer_magic = (long *)((char *)user_memory + size);
-    *footer_magic = MAGIC_NUMBER;
+    *footer_magic = header->magic_number; 
 
     return user_memory;
 }
-
 
 int check_memory_overflow(void *base_ptr, void *element_ptr) {
     HEADER *header = (HEADER*)((char*)base_ptr - HEADER_SIZE);
 
     if (header->magic_number != MAGIC_NUMBER) {
-        printf("Erreur : modification du magic number avant l'en-tête !\n");
+        printf("Error: modification of the magic number before the header!\n");
         return -1;
     }
 
     long *footer_magic = (long*)((char*)base_ptr + header->block_size);
-    if (*footer_magic != MAGIC_NUMBER) {
-        printf("Erreur : modification du magic number après le bloc !\n");
+    if (*footer_magic != header->magic_number) {
+        printf("Error: modification of the magic number after the block!\n");
         return -1;
     }
 
@@ -166,13 +170,12 @@ int check_memory_overflow(void *base_ptr, void *element_ptr) {
     char *end_address = start_address + header->block_size;
 
     if (element_ptr < (void *)start_address || element_ptr >= (void *)end_address) {
-        printf("Erreur : accès hors limites à l'adresse %p\n", element_ptr);
+        printf("Error: out-of-bounds access at address %p\n", element_ptr);
         return -1;
     }
 
     return 0;
 }
-
 
 void free_3is(void *ptr) {
     if (!ptr || !memory_preallocated) return;
@@ -197,35 +200,30 @@ int get_free_list_size() {
     return count;
 }
 
-
 int main() {
-    int *tab = (int *)malloc_3is(4 * sizeof(int));
-   
+    int *tab = (int *)malloc_3is(2 * sizeof(int)); 
     tab[0] = 10;
+    if (check_memory_overflow(tab, &tab[0]) == -1) exit(EXIT_FAILURE);
     tab[1] = 20;
-    tab[2] = 30;
-    tab[3] = 40;
-
-    printf("Values of the first array:\n");
+    if (check_memory_overflow(tab, &tab[1]) == -1) exit(EXIT_FAILURE);
+    printf("Values of the array:\n");
     printf("Element 0: %d\n", tab[0]);
     printf("Element 1: %d\n", tab[1]);
-    printf("Element 2: %d\n", tab[2]);
-    printf("Element 3: %d\n", tab[3]);
-   
-
-    int *new_tab = (int *)malloc_3is(6 * sizeof(int));
     
-    new_tab[0] = 50;
-    new_tab[1] = 60;
+    //change magic number test
+    tab[2] = 30; 
+    if (check_memory_overflow(tab, &tab[2]) == -1) exit(EXIT_FAILURE); 
+     tab[-2] = 30; 
+    if (check_memory_overflow(tab, &tab[-2]) == -1) exit(EXIT_FAILURE);  
+    
+    //access magic number test
+    for (int i = 1; i >= -1; i--) {
+        printf("Element %d: %d\n", i, tab[i]);
+        if (check_memory_overflow(tab, &tab[i]) == -1) exit(EXIT_FAILURE);
+    }
 
-    printf("Values of the second array:\n");
-    printf("Element 0: %d\n", new_tab[0]);
-    printf("Element 1: %d\n", new_tab[1]);
 
-
-    printf("Size of free_list before freeing: %d\n", get_free_list_size());
     free_3is(tab);
-    free_3is(new_tab);
     printf("Memory freed.\n");
     printf("Size of free_list after freeing: %d\n", get_free_list_size());
 
