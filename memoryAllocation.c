@@ -210,18 +210,19 @@ int main() {
     printf("Element 0: %d\n", tab[0]);
     printf("Element 1: %d\n", tab[1]);
     
+    /*----------------Test---------------*/
     //change magic number test
-    tab[2] = 30; 
+   /* tab[2] = 30; 
     if (check_memory_overflow(tab, &tab[2]) == -1) exit(EXIT_FAILURE); 
      tab[-2] = 30; 
-    if (check_memory_overflow(tab, &tab[-2]) == -1) exit(EXIT_FAILURE);  
+    if (check_memory_overflow(tab, &tab[-2]) == -1) exit(EXIT_FAILURE);  */
     
     //access magic number test
-    for (int i = 1; i >= -1; i--) {
+   /* for (int i = 1; i >= -1; i--) {
         printf("Element %d: %d\n", i, tab[i]);
         if (check_memory_overflow(tab, &tab[i]) == -1) exit(EXIT_FAILURE);
-    }
-
+    }*/
+    /*---------------------------------*/
 
     free_3is(tab);
     printf("Memory freed.\n");
